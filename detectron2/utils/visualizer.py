@@ -327,6 +327,46 @@ class VisImage:
         rgb, alpha = np.split(img_rgba, [3], axis=2)
         return rgb.astype("uint8")
 
+from skimage.measure import label, regionprops, find_contours
+
+''' Convert a mask to border image '''
+def mask_to_border(mask):
+    h, w = mask.shape
+    border = np.zeros((h, w))
+
+    contours = find_contours(mask, 0.5)
+    for contour in contours:
+        for c in contour:
+            x = int(c[0])
+            y = int(c[1])
+            border[x][y] = 255
+
+    return border
+
+''' Mask to bounding boxes '''
+def mask_to_bbox(mask):
+    bboxes = []
+
+    mask = mask_to_border(mask)
+    lbl = label(mask)
+    props = regionprops(lbl)
+    for prop in props:
+        x1 = prop.bbox[1]
+        y1 = prop.bbox[0]
+
+        x2 = prop.bbox[3]
+        y2 = prop.bbox[2]
+
+        bboxes.append([x1, y1, x2, y2])
+
+    return bboxes
+
+def detect_bounding_boxes(maskImage, minSize):
+    ''' Detecting bounding boxes '''
+    bboxes = mask_to_bbox(maskImage)
+    # filter out bboxes that have width or height smaller than minSize
+    bboxes = [bbox for bbox in bboxes if (bbox[2] - bbox[0]) > minSize and (bbox[3] - bbox[1]) > minSize]
+    return bboxes
 
 class Visualizer:
     """
@@ -433,7 +473,7 @@ class Visualizer:
         )
         return self.output
 
-    def draw_sem_seg(self, sem_seg, area_threshold=None, alpha=0.8):
+    '''def draw_sem_seg(self, sem_seg, area_threshold=None, alpha=0.8):
         """
         Draw semantic segmentation predictions/labels.
 
@@ -467,7 +507,51 @@ class Visualizer:
                 alpha=alpha,
                 area_threshold=area_threshold,
             )
-        return self.output
+        return self.output'''
+    def draw_sem_seg(self, sem_seg, area_threshold=None, alpha=0.8):
+        """
+        Draw semantic segmentation predictions/labels.
+
+        Args:
+            sem_seg (Tensor or ndarray): the segmentation of shape (H, W).
+                Each value is the integer label of the pixel.
+            area_threshold (int): segments with less than `area_threshold` are not drawn.
+            alpha (float): the larger it is, the more opaque the segmentations are.
+
+        Returns:
+            output (VisImage): image object with visualizations.
+        """
+        # detected_labels = []
+        bounding_boxes = []
+        if isinstance(sem_seg, torch.Tensor):
+            sem_seg = sem_seg.numpy()
+        labels, areas = np.unique(sem_seg, return_counts=True)
+        sorted_idxs = np.argsort(-areas).tolist()
+        labels = labels[sorted_idxs]
+        for label in filter(lambda l: l < len(self.metadata.stuff_classes), labels):
+            try:
+                mask_color = [x / 255 for x in self.metadata.stuff_colors[label]]
+            except (AttributeError, IndexError):
+                mask_color = None
+
+            binary_mask = (sem_seg == label).astype(np.uint8)
+            text = self.metadata.stuff_classes[label]
+            self.draw_binary_mask(
+                binary_mask,
+                color=mask_color,
+                edge_color=_OFF_WHITE,
+                # text=text,
+                alpha=alpha,
+                area_threshold=area_threshold,
+            )
+            bboxes = detect_bounding_boxes(binary_mask, 64)
+            # print(f'got bounding boxes: {i} {len(bboxes)}')
+            bounding_boxes.append({
+                'label': text,
+                'bbox': bboxes
+            })
+            # detected_labels.append(text)
+        return self.output, bounding_boxes
 
     def draw_panoptic_seg(self, panoptic_seg, segments_info, area_threshold=None, alpha=0.7):
         """
