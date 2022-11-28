@@ -321,7 +321,7 @@ class DefaultPredictor:
             predictions = self.model([inputs])[0]
             torch.cuda.synchronize()
             end = time.time()
-            print(end-start)
+            print('prediction time: ', end-start, file=sys.stderr)
             return predictions
 
 
