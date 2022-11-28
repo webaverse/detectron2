@@ -305,6 +305,9 @@ class DefaultPredictor:
                 See :doc:`/tutorials/models` for details about the format.
         """
         with torch.no_grad():  # https://github.com/sphinx-doc/sphinx/issues/4258
+            # model uses fixed input size
+            # speed up the inference by enabling the cuDNN benchmark mode
+            torch.backends.cudnn.benchmark = True
             # Apply pre-processing to image.
             if self.input_format == "RGB":
                 # whether the model expects BGR inputs or RGB
@@ -314,7 +317,11 @@ class DefaultPredictor:
             image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
 
             inputs = {"image": image, "height": height, "width": width}
+            start = time.time()
             predictions = self.model([inputs])[0]
+            torch.cuda.synchronize()
+            end = time.time()
+            print(end-start)
             return predictions
 
 
